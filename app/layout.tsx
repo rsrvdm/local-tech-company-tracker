@@ -1,0 +1,1 @@
+import type {Metadata} from 'next';import './globals.css';export const metadata:Metadata={title:'Local Tech Company Tracker',description:'Pipeline, projects and follow-ups for Local Tech Company.'};export default function Layout({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>}
