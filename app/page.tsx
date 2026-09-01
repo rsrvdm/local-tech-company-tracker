@@ -68,6 +68,17 @@ type Verification = {
   evidence: string;
   verifiedAt?: string;
 };
+type PlaceMatch = {
+  id: string;
+  name: string;
+  address: string;
+  phone: string;
+  website: string;
+  mapsUrl: string;
+  businessStatus: string;
+  rating?: number;
+  reviewCount?: number;
+};
 type AuditResult = SiteCheck & {
   scores: number[];
   issues: string[];
@@ -81,6 +92,8 @@ type Rec = {
   name: string;
   industry: string;
   website: string;
+  location?: string;
+  phone?: string;
   stage: Stage;
   value: number;
   next: string;
@@ -1060,7 +1073,9 @@ function Auditor({
 }) {
   const [name, setName] = useState(''),
     [site, setSite] = useState(''),
-    [checking, setChecking] = useState(false);
+    [checking, setChecking] = useState(false),
+    [finding, setFinding] = useState(false),
+    [matches, setMatches] = useState<PlaceMatch[]>([]);
   const verification = rec.verification || {
       identityMatched: false,
       websiteStatus: 'unverified' as const,
@@ -1121,6 +1136,63 @@ function Auditor({
         },
       });
       say('Audit saved to prospect · stage set to Audited');
+    },
+    findBusiness = async () => {
+      setFinding(true);
+      setMatches([]);
+      try {
+        const response = await fetch('/api/places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: rec.name, location: rec.location }),
+        });
+        const result = (await response.json()) as {
+          places?: PlaceMatch[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error || 'Lookup failed');
+        setMatches(result.places || []);
+        say(result.places?.length ? 'Google matches found' : 'No Google match found');
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Google lookup failed');
+      } finally {
+        setFinding(false);
+      }
+    },
+    selectMatch = (match: PlaceMatch) => {
+      const evidence = [
+        `Google Places match: ${match.name}`,
+        match.address,
+        match.phone,
+        match.mapsUrl,
+        match.website
+          ? `Official profile website: ${match.website}`
+          : 'Google profile has no website attached',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      patch({
+        name: match.name || rec.name,
+        location: match.address,
+        phone: match.phone,
+        website: match.website,
+        siteCheck: match.website === rec.website ? rec.siteCheck : undefined,
+        verification: {
+          identityMatched: true,
+          websiteStatus: match.website ? 'active' : 'unverified',
+          historyChecked: false,
+          evidence,
+        },
+        next: match.website
+          ? 'Run live website check'
+          : 'Google profile matched · website history still requires confirmation',
+      });
+      setMatches([]);
+      say(
+        match.website
+          ? 'Official website imported from Google'
+          : 'Business matched · no website attached to Google profile',
+      );
     },
     checkWebsite = async () => {
       if (!rec.website.trim()) return say('Enter the website URL first');
@@ -1288,6 +1360,43 @@ function Auditor({
           Check all saved URLs
         </button>
       </section>
+      <section className="sitecheck">
+        <div>
+          <b>Find the official business profile</b>
+          <small>Google supplies the matching address, phone and website.</small>
+        </div>
+        <input
+          value={rec.location || ''}
+          onChange={(e) => patch({ location: e.target.value })}
+          placeholder="Town or service area, e.g. Tuncurry NSW"
+        />
+        <button className="primary" onClick={findBusiness} disabled={finding}>
+          <Globe2 />
+          {finding ? 'Searching Google…' : 'Find official Google profile'}
+        </button>
+      </section>
+      {matches.length > 0 && (
+        <section className="evidence">
+          <div>
+            <em>SELECT THE MATCHING BUSINESS</em>
+            <h3>Google Places results</h3>
+            <p>Choose only the result whose name, town and phone belong to this prospect.</p>
+          </div>
+          <div className="matchlist">
+            {matches.map((match) => (
+              <button key={match.id} onClick={() => selectMatch(match)}>
+                <b>{match.name}</b>
+                <span>{match.address}</span>
+                <span>{match.phone || 'No phone returned'}</span>
+                <small>
+                  {match.website ? 'Website attached' : 'No website attached'}
+                  {match.reviewCount ? ` · ${match.reviewCount} reviews` : ''}
+                </small>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="sitecheck">
         <div>
           <b>Website to check</b>
